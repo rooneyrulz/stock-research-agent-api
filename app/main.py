@@ -1,5 +1,9 @@
 from fastapi import FastAPI
 
+from app.config import get_settings
+
+settings = get_settings()
+
 app = FastAPI(
     title="Stock Research Agent API",
     description="Role-specific multi-agent NSE stock analysis, built on CrewAI + Groq.",
@@ -9,7 +13,7 @@ app = FastAPI(
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "environment": "development"}
+    return {"status": "ok", "environment": settings.environment}
 
 
 if __name__ == "__main__":

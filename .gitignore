@@ -1,0 +1,59 @@
+# --- Environment / secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+ENV/
+
+# --- Package build artifacts ---
+build/
+dist/
+*.egg-info/
+*.egg
+wheels/
+
+# --- uv ---
+# uv.lock SHOULD be committed for a reproducible/reliable install --
+# do not ignore it. Only ignore uv's local cache, if ever created in-repo.
+.uv-cache/
+
+# --- Testing / coverage ---
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# --- Type checkers / linters ---
+.mypy_cache/
+.ruff_cache/
+.dmypy.json
+
+# --- App-specific ---
+logs/
+*.log
+
+# --- Jupyter (in case of exploratory notebooks) ---
+.ipynb_checkpoints/
+
+# --- Editors / IDEs ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- OS-specific ---
+.DS_Store
+Thumbs.db

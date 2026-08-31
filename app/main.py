@@ -1,7 +1,10 @@
 from fastapi import FastAPI
 
 from app.config import get_settings
+from app.logging_config import get_logger, setup_logging
 
+setup_logging()
+logger = get_logger(__name__)
 settings = get_settings()
 
 app = FastAPI(
@@ -14,9 +17,3 @@ app = FastAPI(
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "environment": settings.environment}
-
-
-if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, log_level="info", reload=True)

@@ -1,0 +1,45 @@
+{
+    "status": "completed",
+    "request_id": "ccecf187-b798-4aab-bfa5-e3bc48b9cdda",
+    "timestamp": "2026-09-03T13:19:28.211126Z",
+    "query": "should I buy tata consultancy service?",
+    "needs_clarification": false,
+    "clarification_message": null,
+    "results": [
+        {
+            "symbol": "TCS",
+            "market_data": {
+                "symbol": "TCS",
+                "current_price": 2320.1,
+                "previous_close": 2348,
+                "change_pct": -1.19,
+                "volume": 1891690,
+                "rsi_14": 45.02,
+                "sma_50": 2263.91,
+                "sma_200": null,
+                "macd": 8.94,
+                "macd_signal": 10.79,
+                "trend": "insufficient history to determine trend"
+            },
+            "news_sentiment": {
+                "symbol": "TCS",
+                "sentiment": "NEUTRAL",
+                "headline_count": 0,
+                "headlines": [],
+                "summary": "No recent news headlines relevant to TCS were retrieved. Therefore, there is no immediate sentiment impact on the stock."
+            },
+            "recommendation": {
+                "symbol": "TCS",
+                "action": "SELL",
+                "confidence": "MEDIUM",
+                "target_price": 2250,
+                "stop_loss": 2350,
+                "risk_reward_ratio": "2.3:1",
+                "reasoning": "The current price of 2320.1 is down 1.19% from the previous close and the MACD (8.94) is below its signal line (10.79), indicating a short‑term bearish momentum. The RSI is 45.02, which is neutral and not showing overbought conditions. With no recent news affecting sentiment, the technical signals suggest a potential pullback. A short‑term sell is therefore advised with a target near 2250 (about 3% below the current price) and a stop‑loss at 2350 (about 1.3% above the current price) to protect against a brief rebound. This gives a risk‑reward ratio of roughly 2.3:1, providing a favorable risk profile for a short‑term trade."
+            },
+            "error": null
+        }
+    ],
+    "summary": "TCS: Action.SELL (Confidence.MEDIUM confidence). Target: 2250.0, Stop-loss: 2350.0. The current price of 2320.1 is down 1.19% from the previous close and the MACD (8.94) is below its signal line (10.79), indicating a short‑term bearish momentum. The RSI is 45.02, which is neutral and not showing overbought conditions. With no recent news affecting sentiment, the technical signals suggest a potential pullback. A short‑term sell is therefore advised with a target near 2250 (about 3% below the current price) and a stop‑loss at 2350 (about 1.3% above the current price) to protect against a brief rebound. This gives a risk‑reward ratio of roughly 2.3:1, providing a favorable risk profile for a short‑term trade.",
+    "warnings": []
+}

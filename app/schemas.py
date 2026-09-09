@@ -30,9 +30,6 @@ class QueryCategory(str, Enum):
     STOCK_QUERY = (
         "stock_query"  # anything needing market data (single/comparison/screening)
     )
-    CONVERSATIONAL = (
-        "conversational"  # greetings, thanks, small talk -- "hi", "how are you"
-    )
     OFF_TOPIC = "off_topic"  # unrelated to stocks -- "what's the weather in Delhi"
 
 
@@ -100,6 +97,20 @@ class UserIntent(BaseModel):
     )
     time_horizon: TimeHorizon = TimeHorizon.SHORT_TERM
     original_query: str = ""
+
+
+# --------------------------------------------------------------------------------------------
+# Screening
+# --------------------------------------------------------------------------------------------------------
+
+
+class ScreeningMeta(BaseModel):
+    """Informational only -- present when the request was a screening query."""
+
+    strategy_used: ScreeningStrategy
+    sector_filter: str | None = None
+    universe_scanned: int
+    candidates_returned: int
 
 
 # ---------------------------------------------------------------------------
@@ -178,6 +189,7 @@ class AnalysisResponse(BaseModel):
     clarification_message: str | None = None
 
     results: list[SymbolResult] = Field(default_factory=list)
+    screening_meta: ScreeningMeta | None = None
     summary: str = ""
     warnings: list[str] = Field(default_factory=list)
 

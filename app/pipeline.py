@@ -44,6 +44,7 @@ from app.schemas import (
     StockRecommendation,
     SymbolResult,
 )
+from app.screening import screen_candidates
 
 logger = get_logger(__name__)
 trace_log = get_trace_logger()
@@ -159,20 +160,75 @@ def run_analysis(query: str) -> AnalysisResponse:
                 summary=reply,
             )
 
+        # --- Stock queries: general screening ---
+        if intent.mode == AnalysisMode.GENERAL_SCREENING:
+            if intent.screening_criteria is None:
+                # Either the model genuinely couldn't tell what kind of
+                # screen was wanted, or this is the total-parse-failure
+                # fallback from app/intent.py. Ask, don't guess a strategy.
+                message = (
+                    "I can screen for stocks, but I need a bit more direction -- "
+                    "try something like 'give me some momentum stocks', "
+                    "'top gainers today', or 'oversold IT stocks'."
+                )
+                return AnalysisResponse(
+                    status="clarification_needed",
+                    request_id=request_id,
+                    timestamp=datetime.now(UTC),
+                    query=query,
+                    needs_clarification=True,
+                    clarification_message=message,
+                    summary=message,
+                )
+
+            scan = screen_candidates(intent.screening_criteria)
+            if not scan.symbols:
+                sector_note = (
+                    f" in the '{intent.screening_criteria.sector}' sector"
+                    if intent.screening_criteria.sector
+                    else ""
+                )
+                message = (
+                    f"I scanned {scan.universe_scanned} candidates using a "
+                    f"{intent.screening_criteria.strategy.value} strategy{sector_note}, but none "
+                    "matched. Try a different strategy or drop the sector filter."
+                )
+                return AnalysisResponse(
+                    status="clarification_needed",
+                    request_id=request_id,
+                    timestamp=datetime.now(UTC),
+                    query=query,
+                    needs_clarification=True,
+                    clarification_message=message,
+                    summary=message,
+                    screening_meta=ScreeningMeta(
+                        strategy_used=intent.screening_criteria.strategy,
+                        sector_filter=intent.screening_criteria.sector,
+                        universe_scanned=scan.universe_scanned,
+                        candidates_returned=0,
+                    ),
+                )
+
+            screening_meta = ScreeningMeta(
+                strategy_used=intent.screening_criteria.strategy,
+                sector_filter=intent.screening_criteria.sector,
+                universe_scanned=scan.universe_scanned,
+                candidates_returned=len(scan.symbols),
+            )
+            return _build_symbols_response(
+                scan.symbols,
+                intent.time_horizon.value,
+                request_id,
+                query,
+                screening_meta=screening_meta,
+            )
+
         if not intent.symbols:
             message = (
-                (
-                    "I couldn't find a specific stock symbol in your message. "
-                    "Could you name the NSE-listed stock(s) you'd like analyzed, "
-                    "e.g. 'should I buy TCS' or 'compare INFY and WIPRO'? "
-                    "General market screening without a named stock isn't supported yet."
-                )
-                if intent.mode == AnalysisMode.GENERAL_SCREENING
-                else (
-                    "I understood you want a specific stock analysis, but couldn't identify "
-                    "which stock. Could you name it explicitly?"
-                )
+                "I understood you want a specific stock analysis, but couldn't identify "
+                "which stock. Could you name it explicitly?"
             )
+            logger.info("clarification_needed", query=query)
             return AnalysisResponse(
                 status="clarification_needed",
                 request_id=request_id,

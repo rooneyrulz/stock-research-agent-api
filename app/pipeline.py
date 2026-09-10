@@ -4,16 +4,19 @@ happens*; the agents only decide *content*. That split is the main reason
 this should be far more reliable than a freely-routing supervisor agent.
 
 Flow for every request:
-1. Parse intent (structured, see app/intent.py).
-2. If there's nothing to analyze (no symbols, or screening mode which isn't
-   built yet in Phase 1), return a clarification response -- a real answer,
-   not an error, and not a guess.
-3. Otherwise run one crew per symbol (capped by max_symbols_per_request),
-   catching failures per-symbol so one bad ticker doesn't take down a
-   comparison request.
-4. Assemble the fixed AnalysisResponse shape, with a templated (not
-   LLM-generated) summary -- deterministic, free, and avoids a fourth LLM
-   call's worth of rate-limit budget and failure surface for Phase 1.
+1. Parse intent (structured, see app/intent.py) -- this also classifies
+   category (stock_query / off_topic) up front.
+2. Off-topic queries get a deterministic reply immediately,
+   with LLM involvement.
+3. For stock queries: general_screening scans the candidate universe to
+   produce a symbol list; single_stock/comparison use the symbols parsed
+   directly from the query. Either way, missing information triggers a
+   clarification response -- a real answer, not an error, and not a guess.
+4. Run one crew per symbol (capped by max_symbols_per_request), catching
+   failures per-symbol so one bad ticker doesn't take down the whole request.
+5. Assemble the fixed AnalysisResponse shape, with a templated (not
+   LLM-generated) summary -- deterministic, free, and avoids an extra LLM
+   call's worth of rate-limit budget and failure surface.
 """
 
 from __future__ import annotations
@@ -23,6 +26,7 @@ from datetime import UTC, datetime
 
 from app.agents.crew_factory import build_stock_crew
 from app.config import get_settings
+from app.conversational import generate_off_topic_reply
 from app.intent import parse_intent
 from app.logging_config import (
     bind_request_context,
@@ -35,9 +39,12 @@ from app.schemas import (
     AnalysisResponse,
     MarketData,
     NewsSentiment,
+    QueryCategory,
+    ScreeningMeta,
     StockRecommendation,
     SymbolResult,
 )
+from app.screening import screen_candidates
 
 logger = get_logger(__name__)
 trace_log = get_trace_logger()
@@ -50,7 +57,6 @@ def _run_crew_for_symbol(symbol: str, time_horizon: str) -> SymbolResult:
         crew.kickoff()
 
         tasks = crew.tasks
-        print(f"Tasks for {symbol}: {[t for t in tasks]}")  # Debugging line
 
         market_data = tasks[0].output.pydantic if tasks[0].output else None
         news_sentiment = tasks[1].output.pydantic if tasks[1].output else None
@@ -94,6 +100,45 @@ def _build_summary(results: list[SymbolResult]) -> str:
     return "\n\n".join(lines) if lines else "No results were produced for this query."
 
 
+def _build_symbols_response(
+    symbols: list[str],
+    time_horizon: str,
+    request_id: str,
+    query: str,
+    extra_warnings: list[str] | None = None,
+    screening_meta: ScreeningMeta | None = None,
+) -> AnalysisResponse:
+    """Shared tail end of the pipeline: run the per-symbol crew loop and
+    assemble the final response. Used by both direct single/comparison
+    queries and screening mode -- they only differ in *how* `symbols` was
+    produced (parsed directly from the query vs. selected by the screener),
+    so everything downstream of "here is a symbol list" is reused as-is."""
+    warnings = list(extra_warnings or [])
+    results = [_run_crew_for_symbol(sym, time_horizon) for sym in symbols]
+
+    failed = [r for r in results if r.error]
+    if failed:
+        warnings.append(f"Analysis failed for: {', '.join(r.symbol for r in failed)}.")
+    status = (
+        "failed"
+        if len(failed) == len(results)
+        else ("partial" if failed else "completed")
+    )
+
+    response = AnalysisResponse(
+        status=status,
+        request_id=request_id,
+        timestamp=datetime.now(UTC),
+        query=query,
+        results=results,
+        screening_meta=screening_meta,
+        summary=_build_summary(results),
+        warnings=warnings,
+    )
+    logger.info("analysis_request_completed", status=status, symbols=symbols)
+    return response
+
+
 def run_analysis(query: str) -> AnalysisResponse:
     settings = get_settings()
     request_id = str(uuid.uuid4())
@@ -103,20 +148,87 @@ def run_analysis(query: str) -> AnalysisResponse:
     try:
         intent = parse_intent(query)
 
+        if intent.category == QueryCategory.OFF_TOPIC:
+            reply = generate_off_topic_reply(query)
+            logger.info("off_topic_reply", query=query)
+            return AnalysisResponse(
+                status="off_topic",
+                request_id=request_id,
+                timestamp=datetime.now(UTC),
+                query=query,
+                needs_clarification=False,
+                summary=reply,
+            )
+
+        # --- Stock queries: general screening ---
+        if intent.mode == AnalysisMode.GENERAL_SCREENING:
+            if intent.screening_criteria is None:
+                # Either the model genuinely couldn't tell what kind of
+                # screen was wanted, or this is the total-parse-failure
+                # fallback from app/intent.py. Ask, don't guess a strategy.
+                message = (
+                    "I can screen for stocks, but I need a bit more direction -- "
+                    "try something like 'give me some momentum stocks', "
+                    "'top gainers today', or 'oversold IT stocks'."
+                )
+                return AnalysisResponse(
+                    status="clarification_needed",
+                    request_id=request_id,
+                    timestamp=datetime.now(UTC),
+                    query=query,
+                    needs_clarification=True,
+                    clarification_message=message,
+                    summary=message,
+                )
+
+            scan = screen_candidates(intent.screening_criteria)
+            if not scan.symbols:
+                sector_note = (
+                    f" in the '{intent.screening_criteria.sector}' sector"
+                    if intent.screening_criteria.sector
+                    else ""
+                )
+                message = (
+                    f"I scanned {scan.universe_scanned} candidates using a "
+                    f"{intent.screening_criteria.strategy.value} strategy{sector_note}, but none "
+                    "matched. Try a different strategy or drop the sector filter."
+                )
+                return AnalysisResponse(
+                    status="clarification_needed",
+                    request_id=request_id,
+                    timestamp=datetime.now(UTC),
+                    query=query,
+                    needs_clarification=True,
+                    clarification_message=message,
+                    summary=message,
+                    screening_meta=ScreeningMeta(
+                        strategy_used=intent.screening_criteria.strategy,
+                        sector_filter=intent.screening_criteria.sector,
+                        universe_scanned=scan.universe_scanned,
+                        candidates_returned=0,
+                    ),
+                )
+
+            screening_meta = ScreeningMeta(
+                strategy_used=intent.screening_criteria.strategy,
+                sector_filter=intent.screening_criteria.sector,
+                universe_scanned=scan.universe_scanned,
+                candidates_returned=len(scan.symbols),
+            )
+            return _build_symbols_response(
+                scan.symbols,
+                intent.time_horizon.value,
+                request_id,
+                query,
+                screening_meta=screening_meta,
+            )
+
         if not intent.symbols:
             message = (
-                (
-                    "I couldn't find a specific stock symbol in your message. "
-                    "Could you name the NSE-listed stock(s) you'd like analyzed, "
-                    "e.g. 'should I buy TCS' or 'compare INFY and WIPRO'? "
-                    "General market screening without a named stock isn't supported yet."
-                )
-                if intent.mode == AnalysisMode.GENERAL_SCREENING
-                else (
-                    "I understood you want a specific stock analysis, but couldn't identify "
-                    "which stock. Could you name it explicitly?"
-                )
+                "I understood you want a specific stock analysis, but couldn't identify "
+                "which stock. Could you name it explicitly?"
             )
+            logger.info("clarification_needed", query=query)
             return AnalysisResponse(
                 status="clarification_needed",
                 request_id=request_id,
@@ -135,32 +247,13 @@ def run_analysis(query: str) -> AnalysisResponse:
                 f"({', '.join(symbols)}) to stay within rate limits."
             )
 
-        results = [
-            _run_crew_for_symbol(sym, intent.time_horizon.value) for sym in symbols
-        ]
-
-        failed = [r for r in results if r.error]
-        if failed:
-            warnings.append(
-                f"Analysis failed for: {', '.join(r.symbol for r in failed)}."
-            )
-        status = (
-            "failed"
-            if len(failed) == len(results)
-            else ("partial" if failed else "completed")
+        return _build_symbols_response(
+            symbols,
+            intent.time_horizon.value,
+            request_id,
+            query,
+            extra_warnings=warnings,
         )
-
-        response = AnalysisResponse(
-            status=status,
-            request_id=request_id,
-            timestamp=datetime.now(UTC),
-            query=query,
-            results=results,
-            summary=_build_summary(results),
-            warnings=warnings,
-        )
-        logger.info("analysis_request_completed", status=status, symbols=symbols)
-        return response
 
     finally:
         clear_request_context()

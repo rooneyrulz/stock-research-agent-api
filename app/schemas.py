@@ -19,7 +19,25 @@ from pydantic import BaseModel, Field
 class AnalysisMode(str, Enum):
     SINGLE_STOCK = "single_stock"
     COMPARISON = "comparison"
-    GENERAL_SCREENING = "general_screening"  # not implemented until Phase 2
+    GENERAL_SCREENING = "general_screening"
+
+
+class QueryCategory(str, Enum):
+    """Top-level classification, decided before anything else. This is what
+    lets the API respond like a human would to a greeting or an unrelated
+    question, instead of forcing every message through the stock pipeline."""
+
+    STOCK_QUERY = (
+        "stock_query"  # anything needing market data (single/comparison/screening)
+    )
+    OFF_TOPIC = "off_topic"  # unrelated to stocks -- "what's the weather in Delhi"
+
+
+class ScreeningStrategy(str, Enum):
+    MOMENTUM = "momentum"  # weighted blend of recent gain, RSI, trend alignment
+    TOP_GAINERS = "top_gainers"  # ranked purely by change_pct
+    OVERSOLD = "oversold"  # lowest RSI-14 (potential mean-reversion candidates)
+    BREAKOUT = "breakout"  # price recently crossed above its 50-day SMA
 
 
 class TimeHorizon(str, Enum):
@@ -53,16 +71,46 @@ class Sentiment(str, Enum):
 # ---------------------------------------------------------------------------
 
 
+class ScreeningCriteria(BaseModel):
+    """Populated on UserIntent only when mode == GENERAL_SCREENING."""
+
+    strategy: ScreeningStrategy = ScreeningStrategy.MOMENTUM
+    sector: str | None = Field(
+        default=None,
+        description="Optional sector filter, e.g. 'banking', 'IT', 'pharma'",
+    )
+
+
 class UserIntent(BaseModel):
     """What the intent-parsing step extracts from a free-text user query."""
 
-    mode: AnalysisMode
+    category: QueryCategory
+    mode: AnalysisMode | None = Field(
+        default=None, description="Only set when category == stock_query"
+    )
+    screening_criteria: ScreeningCriteria | None = Field(
+        default=None, description="Only set when mode == GENERAL_SCREENING"
+    )
     symbols: list[str] = Field(
         default_factory=list,
         description="NSE ticker symbols mentioned or implied, WITHOUT the .NS suffix, e.g. ['TCS', 'INFY']",
     )
     time_horizon: TimeHorizon = TimeHorizon.SHORT_TERM
     original_query: str = ""
+
+
+# --------------------------------------------------------------------------------------------
+# Screening
+# --------------------------------------------------------------------------------------------------------
+
+
+class ScreeningMeta(BaseModel):
+    """Informational only -- present when the request was a screening query."""
+
+    strategy_used: ScreeningStrategy
+    sector_filter: str | None = None
+    universe_scanned: int
+    candidates_returned: int
 
 
 # ---------------------------------------------------------------------------
@@ -141,6 +189,7 @@ class AnalysisResponse(BaseModel):
     clarification_message: str | None = None
 
     results: list[SymbolResult] = Field(default_factory=list)
+    screening_meta: ScreeningMeta | None = None
     summary: str = ""
     warnings: list[str] = Field(default_factory=list)
 

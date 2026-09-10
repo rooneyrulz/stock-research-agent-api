@@ -21,23 +21,10 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.config import get_settings
 from app.logging_config import get_logger
-from app.schemas import AnalysisMode, TimeHorizon, UserIntent
+from app.prompts.intent import INTENT_SYSTEM_PROMPT
+from app.schemas import AnalysisMode, QueryCategory, TimeHorizon, UserIntent
 
 logger = get_logger(__name__)
-
-SYSTEM_PROMPT = """You are an intent classifier for a stock research API focused on NSE-listed (Indian) equities.
-
-Given a user's message, extract:
-- mode: "single_stock" (one specific stock asked about), "comparison" (two or more specific stocks), or "general_screening" (no specific stock named -- they want ideas/picks/screening)
-- symbols: the NSE ticker symbols mentioned, UPPERCASE, WITHOUT any exchange suffix like .NS. Convert well-known company names to their ticker, e.g. "Tata Consultancy Services" -> "TCS", "Reliance" -> "RELIANCE", "Infosys" -> "INFY", "HDFC Bank" -> "HDFCBANK". If you are not confident of a ticker for a name, omit it rather than guessing.
-- time_horizon: "intraday", "short_term" (roughly 1-7 days), "medium_term" (roughly 1-4 weeks), or "long_term" (months+). Infer from phrasing like "today", "this week", "long term investment". Default to "short_term" if unclear.
-
-Examples:
-"should I buy TCS right now?" -> mode=single_stock, symbols=["TCS"], time_horizon=short_term
-"compare Infosys and TCS for a swing trade" -> mode=comparison, symbols=["INFY","TCS"], time_horizon=short_term
-"give me some good stocks to buy this week" -> mode=general_screening, symbols=[], time_horizon=short_term
-"is Reliance a good long term investment" -> mode=single_stock, symbols=["RELIANCE"], time_horizon=long_term
-"""
 
 _INTENT_JSON_SCHEMA = UserIntent.model_json_schema()
 # original_query is filled in by us afterwards, don't ask the model for it.
@@ -61,7 +48,7 @@ def _call_groq_for_intent(client: Groq, model: str, query: str) -> dict:
     response = client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": INTENT_SYSTEM_PROMPT},
             {"role": "user", "content": query},
         ],
         response_format={
@@ -97,7 +84,11 @@ def parse_intent(query: str) -> UserIntent:
         raw["original_query"] = query
         intent = UserIntent(**raw)
         logger.info(
-            "intent_parsed", query=query, mode=intent.mode, symbols=intent.symbols
+            "intent_parsed",
+            query=query,
+            category=intent.category,
+            mode=intent.mode,
+            symbols=intent.symbols,
         )
         return intent
     except Exception as exc:  # noqa: BLE001
@@ -106,6 +97,7 @@ def parse_intent(query: str) -> UserIntent:
         # layer turns this into a clarification request rather than
         # guessing at a stock symbol.
         return UserIntent(
+            category=QueryCategory.STOCK_QUERY,
             mode=AnalysisMode.GENERAL_SCREENING,
             symbols=[],
             time_horizon=TimeHorizon.SHORT_TERM,

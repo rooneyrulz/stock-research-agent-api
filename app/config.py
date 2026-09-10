@@ -52,6 +52,12 @@ class Settings(BaseSettings):
     tool_retry_max_seconds: float = Field(default=8.0)
 
     task_max_retries: int = Field(default=2, description="CrewAI task-level retries on schema validation failure")
+    
+    # --- Phase 2: general screening ---
+    max_screening_results: int = Field(default=5, description="How many top-ranked candidates flow into the LLM crew")
+    screening_universe_path: str = Field(default="app/data/nifty50.json", description="Bundled candidate symbol list")
+    screening_scan_period: str = Field(default="1mo", description="Cheaper yfinance history window for the ranking-only scan")
+    screening_max_workers: int = Field(default=10, description="Threadpool size for concurrent candidate scanning")
 
 
 @lru_cache

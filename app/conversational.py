@@ -10,26 +10,16 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.config import get_settings
 from app.logging_config import get_logger
+from app.prompts.conversational import OFF_TOPIC_SYSTEM_PROMPT
 
 logger = get_logger(__name__)
-
-SYSTEM_PROMPT = """
-You are a helpful NSE stock market related AI assistant. you will answer user queries with only your trained knowladge.
-Do not use any tools
-Do not make up any data. I want you to be honest. 
-If the user asks for something you don't know, say so.
-
-Examples
-"how are you doing" -> "I'm a AI assistant, I'm doing well"
-"what is the weather like" -> "I can't answer that, I'm only trained on stock market data"
-"""
 
 @retry(reraise=True, stop=stop_after_attempt(2), wait=wait_exponential(multiplier=1, min=1, max=4))
 def _call_groq_for_answer(client: Groq, model: str, query: str) -> str:
     response = client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": OFF_TOPIC_SYSTEM_PROMPT},
             {"role": "user", "content": query},
         ],
         temperature=0.0,

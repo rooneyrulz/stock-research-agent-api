@@ -54,8 +54,8 @@ That means:
 
 - 🧭 **Deterministic control flow.** Code decides _what happens_; agents only decide _content_. No agent decides which agent runs next.
 - 🧱 **Structured I/O everywhere.** Every response has a fixed, validated JSON shape — never string-parsed free text.
-- 🛠️ **Tools kept out of the reasoning loop where they don't need to be.** Data fetching and stock screening are deterministic Python; LLM agents are reserved for judgment calls (sentiment, recommendation synthesis, off-topic answers).
-- 🎯 **The API knows what it doesn't know.** Anything outside NSE stock research gets an honest "I can't help with that" — never a hallucinated tool call, never a made-up answer dressed up as fact.
+- 🎯 **One narrow job per agent.** Each agent has at most one tool and a tightly scoped task, so there's minimal ambiguity about what it should do next.
+- 🤷 **The API knows what it doesn't know.** Anything outside NSE stock research gets an honest "I can't help with that" from a path that never has a tool available to hallucinate in the first place.
 - 🩹 **Graceful degradation.** One bad ticker, one flaky API call, or one malformed model response degrades that one part of the answer — it doesn't take down the whole request.
 
 ## ✨ Features
@@ -64,10 +64,10 @@ That means:
 | --- | --- |
 | 🗣️ **Natural language in** | `"should I buy TCS?"`, `"compare Infosys and Wipro"`, `"give me some momentum stocks"`, or even `"hi, how are you?"` — a dedicated intent classifier figures out what you actually want. |
 | 🔎 **Screening mode** | No specific stock in mind? Ask for `"oversold IT stocks"` or `"top gainers today"` and the API scans a candidate universe, scores it deterministically, and runs full analysis on the winners. |
-| 💬 **Honest off-topic handling** | Questions unrelated to NSE stocks (`"what's the weather?"`, `"how are you?"`) get answered by an LLM call with **zero tools attached** — so it can chat, but it structurally _cannot_ hallucinate a tool call or pretend to have real-time data it doesn't. |
-| 🧑‍💼 **Role-specific agents** | A News Sentiment Analyst and a Trading Recommendation Strategist, each with a narrow, well-defined job. |
-| 📊 **Free, keyless market data** | Price, volume, RSI-14, 50/200-day SMA, and MACD — computed by hand from `yfinance` history, no paid API required. |
-| 📰 **Free news sentiment** | Headlines pulled from `yfinance`, classified by an LLM agent — one data source covers both price and news. |
+| 💬 **Honest off-topic handling** | Questions unrelated to NSE stocks (`"what's the weather?"`, `"how are you?"`) get answered by a direct LLM call with **zero tools attached** — it can chat, but it structurally _cannot_ call a tool or pretend to have real-time data it doesn't. |
+| 🧑‍💼 **Three role-specific agents** | Market Data Analyst → News Sentiment Analyst → Recommendation Strategist, each with a narrow job and at most one tool. |
+| 📊 **Free, keyless market data** | Price, volume, RSI-14, 50/200-day SMA, and MACD — computed by hand from `yfinance` history, fetched via a single-purpose `MarketDataTool`. |
+| 📰 **Free news sentiment** | Headlines pulled from `yfinance` via `NewsTool`, classified by the News Sentiment Analyst — one data source covers both price and news. |
 | 🧪 **Schema-validated everything** | Every agent output and the final API response are validated Pydantic models — no regex, no `.split(":")`. |
 | 🔁 **Retries + backoff** | Every external call (Groq, yfinance) is wrapped with `tenacity` retry/backoff. |
 | 📜 **Structured logging** | JSON logs split into `app.log` (HTTP layer) and `agent_trace.log` (every agent step / tool call / retry), correlated by request ID. |
@@ -80,7 +80,7 @@ flowchart TD
     U([👤 User Query]) --> API["🚪 FastAPI<br/>POST /analyze"]
     API --> Intent["🧭 Intent Classifier<br/>Groq structured JSON output"]
 
-    Intent -->|"off_topic"| OffTopic["💬 Off-Topic Responder<br/>LLM, zero tools attached"]
+    Intent -->|"off_topic"| OffTopic["💬 Off-Topic Responder<br/>direct LLM call, zero tools attached"]
     OffTopic --> RespOT(["📦 Honest text reply<br/>(no data, no tool calls)"])
 
     Intent -->|"stock_query"| Mode{Mode?}
@@ -89,9 +89,9 @@ flowchart TD
     Mode -->|general_screening| Screen["🔎 Screening Engine<br/>deterministic scoring, no LLM"]
     Screen -->|"top-N candidates"| DirectSymbols
 
-    DirectSymbols --> Fetch["📊 Deterministic Data Fetch<br/>yfinance: price + technicals + news"]
-    Fetch --> News["📰 News Sentiment Analyst<br/>(tool-free CrewAI agent)"]
-    News --> Rec["🧑‍💼 Recommendation Strategist<br/>(tool-free CrewAI agent)"]
+    DirectSymbols --> MDA["📊 Market Data Analyst<br/>tool: get_market_data"]
+    MDA --> NA["📰 News Sentiment Analyst<br/>tool: get_recent_news"]
+    NA --> Rec["🧑‍💼 Recommendation Strategist<br/>no tools — synthesis only"]
     Rec --> Validate["✅ Pydantic Validation<br/>+ graceful degradation"]
     Validate --> RespStock(["📦 Fixed JSON Response"])
 
@@ -99,12 +99,35 @@ flowchart TD
     style Intent fill:#F55036,color:#fff
     style OffTopic fill:#6C63FF,color:#fff
     style Screen fill:#0E9F6E,color:#fff
-    style News fill:#FF6B35,color:#fff
+    style MDA fill:#FF6B35,color:#fff
+    style NA fill:#FF6B35,color:#fff
     style Rec fill:#FF6B35,color:#fff
     style Validate fill:#2E7D32,color:#fff
 ```
 
-**Why two agents instead of three-plus-tools?** Earlier iterations gave agents both tools _and_ a JSON-output instruction, which caused Groq's tool-tuned OSS models to occasionally hallucinate a call to a nonexistent `"json"` tool. Since price/news lookups need no LLM judgment, they moved to plain deterministic Python — leaving agents free of tools entirely, so a phantom tool call is structurally impossible. Judgment (sentiment, recommendation) stays with the LLM, where it belongs.
+### The crew, up close
+
+```mermaid
+flowchart LR
+    subgraph Crew["CrewAI Crew — Process.sequential"]
+        direction LR
+        MDA["📊 Market Data Analyst<br/>🔧 MarketDataTool"] --> NA["📰 News Sentiment Analyst<br/>🔧 NewsTool"] --> Rec["🧑‍💼 Recommendation Strategist<br/>🚫 no tools"]
+    end
+
+    style MDA fill:#FF6B35,color:#fff
+    style NA fill:#FF6B35,color:#fff
+    style Rec fill:#2E7D32,color:#fff
+```
+
+| Agent | Tool | Job |
+| --- | --- | --- |
+| **Market Data Analyst** | `MarketDataTool` (`crewai.tools.BaseTool`) | Fetch price, volume, RSI-14, SMA-50/200, MACD for the symbol |
+| **News Sentiment Analyst** | `NewsTool` (`crewai.tools.BaseTool`) | Fetch recent headlines and classify sentiment |
+| **Recommendation Strategist** | _(none)_ | Synthesize the two prior outputs into a BUY/SELL/HOLD call — pure reasoning, no data access of its own |
+
+Each tool-calling agent is deliberately limited to **exactly one tool**. Fewer tools per agent means less ambiguity about which one to invoke — which matters more than it sounds on smaller/free-tier models, where "pick the right tool" is itself a place things can go wrong.
+
+> ⚠️ **Known gotcha with tool-tuned Groq models (e.g. `gpt-oss`):** if a tool-calling agent's task _also_ demands its final answer be reformatted into strict JSON matching a schema, the model can occasionally hallucinate a call to a nonexistent `"json"` tool instead of just answering — Groq correctly rejects this with `tool call validation failed ... not in request.tools`. If you hit that error, check whether the offending task is asking the same turn to both call a tool _and_ emit schema-perfect JSON; separating "call the tool" from "format the result" (or validating the tool's raw output directly rather than asking the model to re-emit it) avoids the issue. The Recommendation Strategist is unaffected since it has no tools to begin with.
 
 ## 🔎 Screening mode, in depth
 
@@ -120,7 +143,7 @@ flowchart LR
     All --> Scan["⚡ Concurrent Scan<br/>ThreadPoolExecutor + yfinance"]
     Scan --> Score["🧮 score_candidate()<br/>pure, deterministic, unit-tested"]
     Score --> Rank["Sort + take top N"]
-    Rank --> Out(["Symbol list<br/>→ fed into the normal per-symbol pipeline"])
+    Rank --> Out(["Symbol list<br/>→ fed into the normal 3-agent crew"])
 
     style Criteria fill:#0E9F6E,color:#fff
     style Score fill:#0E9F6E,color:#fff
@@ -133,7 +156,7 @@ flowchart LR
 | `oversold` | Lowest RSI-14 (below 35) — potential mean-reversion candidates. |
 | `breakout` | Price recently crossed above its 50-day SMA — ranked by how far above. |
 
-**No LLM ever picks the stocks.** Scoring is plain arithmetic on data already being fetched — deterministic, free, instant, and fully unit-testable without mocking a single network call. The LLM's job stays where it adds real value: interpreting news and writing the final recommendation for whichever candidates the scorer selects.
+**No LLM ever picks the stocks.** Scoring is plain arithmetic on data the Market Data Analyst's tool already returns — deterministic, free, instant, and fully unit-testable without mocking a single network call. The LLM's job stays where it adds real value: interpreting news and writing the final recommendation for whichever candidates the scorer selects.
 
 > ⚠️ The bundled candidate universe (`app/data/nifty50.json`) is a hand-curated sample, not a live index feed. Refresh it periodically against an authoritative source if you need it to track actual index membership.
 
@@ -144,7 +167,7 @@ Every query gets classified into exactly one of two categories:
 - **`stock_query`** — anything needing market data: a specific stock, a comparison, or a screening request.
 - **`off_topic`** — everything else, from genuine small talk (`"how are you?"`) to fully unrelated questions (`"what's the weather in Mumbai?"`).
 
-`off_topic` queries are answered by a direct LLM call — but **with no tools passed in the request at all.** That's not a prompt instruction asking the model to behave; it's a structural guarantee. A model literally cannot attempt a tool call if the API request never offered it any tools to call, which closes off the exact failure mode (hallucinated tool calls) that shaped a lot of this project's other design decisions.
+`off_topic` queries never touch the CrewAI crew at all — they're answered by a **direct** Groq call with no tools passed in the request. That's not a prompt instruction asking the model to behave; it's a structural guarantee. A model literally cannot attempt a tool call if the API request never offered it any tools to call, which is why this path (unlike the crew above) can make that "structurally impossible" claim.
 
 The system prompt (see `app/prompts/conversational.py`) is deliberately blunt about this:
 
@@ -344,12 +367,12 @@ All settings live in `app/config.py` and are overridable via `.env`:
 | Variable | Default | Description |
 | --- | --- | --- |
 | `GROQ_API_KEY` | _(required)_ | Free key from [console.groq.com](https://console.groq.com/keys) |
-| `GROQ_TOOL_MODEL` | `openai/gpt-oss-120b` | _(reserved for future tool-calling agents)_ |
-| `GROQ_REASONING_MODEL` | `openai/gpt-oss-20b` | Model used by the news/recommendation agents, the intent classifier, and off-topic replies |
+| `GROQ_TOOL_MODEL` | `openai/gpt-oss-120b` | Model used by the two tool-calling agents (Market Data Analyst, News Sentiment Analyst) |
+| `GROQ_REASONING_MODEL` | `openai/gpt-oss-20b` | Model used by the Recommendation Strategist, the intent classifier, and off-topic replies |
 | `GROQ_MAX_REQUESTS_PER_MINUTE` | `20` | Keeps requests under Groq's free-tier RPM |
 | `MAX_SYMBOLS_PER_REQUEST` | `3` | Cap on comparison-mode requests |
 | `MARKET_DATA_PERIOD` | `6mo` | yfinance history window for indicators |
-| `MAX_SCREENING_RESULTS` | `5` | How many top-ranked candidates flow into the LLM crew |
+| `MAX_SCREENING_RESULTS` | `5` | How many top-ranked candidates flow into the crew |
 | `SCREENING_UNIVERSE_PATH` | `app/data/nifty50.json` | Bundled candidate symbol list |
 | `SCREENING_SCAN_PERIOD` | `1mo` | Cheaper yfinance history window used only for the ranking scan |
 | `SCREENING_MAX_WORKERS` | `10` | Threadpool size for concurrent candidate scanning |
@@ -366,17 +389,17 @@ app/
 ├── intent.py                    # Free-text query → structured UserIntent (category, mode, symbols, screening_criteria)
 ├── conversational.py            # Off-topic answering: direct Groq call, zero tools attached
 ├── screening.py                 # Deterministic candidate scoring + concurrent yfinance scan
-├── pipeline.py                  # Orchestration: intent → (off_topic reply | fetch → crew | screen → fetch → crew) → response
+├── pipeline.py                  # Orchestration: intent → (off_topic reply | crew | screen → crew) → response
 ├── prompts/
 │   ├── intent.py                 # SYSTEM_PROMPT for the intent classifier
 │   └── conversational.py         # SYSTEM_PROMPT for off-topic answering
 ├── data/
 │   └── nifty50.json              # Bundled screening candidate universe
 ├── tools/
-│   └── yfinance_tools.py         # Free market data + news fetchers, with retries
+│   └── yfinance_tools.py         # MarketDataTool + NewsTool (crewai.tools.BaseTool), with retries
 ├── agents/
 │   ├── llm_config.py             # Groq ↔ CrewAI LLM wiring
-│   └── crew_factory.py           # The 2-agent tool-free crew
+│   └── crew_factory.py           # The 3-agent crew: Market Data Analyst → News Sentiment Analyst → Recommendation Strategist
 └── main.py                       # FastAPI app: POST /analyze, GET /health
 tests/
 ├── test_smoke.py
@@ -389,12 +412,13 @@ tests/
 ## 🛡️ Reliability design notes
 
 <details>
-<summary><strong>Click to expand — specific failure modes this design avoids</strong></summary>
+<summary><strong>Click to expand — specific failure modes this design targets</strong></summary>
 
-| Failure mode | Root cause elsewhere | How it's avoided here |
+| Failure mode | Root cause elsewhere | How it's addressed here |
 | --- | --- | --- |
-| Tool call errors | Weak tool-calling model, ambiguous tools | Deterministic Python for data fetching; zero tools on any LLM agent |
-| Hallucinated tool calls on off-topic/chit-chat | Model tries to "help" by calling a tool anyway | Off-topic requests to Groq include **no tools parameter at all** — a tool call is structurally impossible |
+| Tool call errors | Weak tool-calling model, agents juggling multiple tools | Each tool-calling agent is limited to exactly one narrowly-scoped tool (`MarketDataTool` / `NewsTool`) |
+| Hallucinated tool calls on off-topic/chit-chat | Model tries to "help" by calling a tool anyway | Off-topic requests to Groq include **no tools parameter at all** — a tool call is structurally impossible on that path |
+| Phantom `"json"` tool calls from tool-having agents | Tool-tuned Groq models occasionally hallucinate a function call when also told to emit strict JSON | Known gotcha, documented above — keep tool-calling and JSON-reformatting out of the same task where possible |
 | Schema/validation errors | No input/output schemas | Pydantic models on every boundary, with retries on parse failure |
 | Parsing errors | Manual string-splitting on free text | JSON-schema-guided prompts + our own `json.loads` + `model_validate` |
 | Routing / handoff loops | LLM-driven supervisor decides "who's next" | `Process.sequential` — code decides the order, always |
@@ -410,14 +434,14 @@ tests/
 uv run pytest -q
 ```
 
-Covers pure logic offline — symbol normalization, indicator math (including edge cases like all-gain/all-loss RSI windows), screening score functions per strategy, candidate-universe loading, and schema validation. Off-topic and intent-classification tests mock the Groq call boundary directly, so the suite runs without hitting the network or burning API quota. Live Groq/yfinance calls aren't exercised in CI yet; that's what the Phase 3 golden-set regression suite is for (see [Roadmap](#-roadmap)).
+Covers pure logic offline — symbol normalization, indicator math (including edge cases like all-gain/all-loss RSI windows), screening score functions per strategy, candidate-universe loading, and schema validation. Off-topic and intent-classification tests mock the Groq call boundary directly, so the suite runs without hitting the network or burning API quota. Live Groq/yfinance calls, and the crew's actual multi-agent tool-calling behavior, aren't exercised in CI yet — that's what the Phase 3 golden-set regression suite is for (see [Roadmap](#-roadmap)).
 
 ## 🗺️ Roadmap
 
-- [x] **Phase 1** — Deterministic sequential pipeline, structured I/O, free data sources, structured logging
+- [x] **Phase 1** — Sequential 3-agent crew, structured I/O, free data sources, structured logging
 - [x] **Phase 2** — Screening/stock-finder mode, LLM-based off-topic handling with zero tool exposure
 - [ ] **Phase 2.5** — Redis caching, async job queue for long/screening requests
-- [ ] **Phase 3** — Full observability (token/cost/latency dashboards), hierarchical multi-turn conversations, golden-set regression CI
+- [ ] **Phase 3** — Full observability (token/cost/latency dashboards), hierarchical multi-turn conversations, golden-set regression CI covering live tool-calling behavior
 
 ## 🤝 Contributing
 

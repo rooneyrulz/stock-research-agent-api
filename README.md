@@ -428,6 +428,14 @@ tests/
 
 </details>
 
+## 💻 Streamlit UI
+
+```bash
+uv run streamlit run streamlit_app/main.py
+```
+
+![NSE Stock Research Agent UI](docs/screenshots/nse_stock_research_agent.png)
+
 ## 🧪 Testing
 
 ```bash
@@ -445,8 +453,28 @@ Covers pure logic offline — symbol normalization, indicator math (including ed
 
 ## 🤝 Contributing
 
+We welcome contributions! Please see our contributing guidelines:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
 Issues and PRs welcome. If you hit a new failure mode against Groq or another provider, please include the raw error payload — that's exactly how the last few reliability fixes here got made.
 
 ## 📄 License
 
-[MIT](LICENSE)
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🆘 Support
+
+For support and questions:
+
+- Open an issue on GitHub
+- Check the documentation
+- Review the troubleshooting guide
+
+---
+
+**Made with ❤️ for the Indian Stock Market Community**

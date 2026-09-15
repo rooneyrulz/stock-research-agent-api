@@ -15,12 +15,13 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from streamlit_app.components.results_table import render_results_table
 from streamlit_app.service import get_analysis
 
-st.set_page_config(page_title="Stock Research Agent API (dev)", page_icon="📈")
+st.set_page_config(page_title="NSE Stock Research Agent", page_icon="📈", layout="wide")
 
-st.title("📈 Stock Research Agent API — wiring check")
-st.caption("Bare-bones Step 1: raw JSON output, no UI polish yet.")
+st.title("📈 NSE Stock Research Agent - Wiring Check")
+st.caption("Structured table + per-status handling replaces the raw JSON dump from Step 1.")
 
 query = st.text_input(
     "Query",
@@ -31,5 +32,20 @@ if st.button("Run", type="primary", disabled=not query.strip()):
     with st.spinner("Calling the backend..."):
         response = get_analysis(query)
 
-    st.subheader("Result")
-    st.json(response.model_dump(mode="json"))
+    if response.status == "off_topic":
+        st.info(response.summary)
+
+    elif response.status == "clarification_needed":
+        st.warning(response.clarification_message or response.summary)
+
+    elif response.status == "failed":
+        st.error(response.summary)
+
+    else:  # completed / partial
+        if response.warnings:
+            for warning in response.warnings:
+                st.warning(warning)
+        render_results_table(response)
+
+    with st.expander("🛠️ View raw response (debug)"):
+        st.json(response.model_dump(mode="json"))

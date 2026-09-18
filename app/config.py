@@ -6,6 +6,7 @@ rate limits, timeouts) lives here so the rest of the codebase never reads
 os.environ directly. That makes the reliability knobs (retries, rate limits,
 timeouts) easy to find and tune in one place.
 """
+
 from __future__ import annotations
 
 from functools import lru_cache
@@ -15,7 +16,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+    )
 
     # --- Groq ---
     groq_api_key: str = Field(..., description="GROQ_API_KEY from console.groq.com")
@@ -43,23 +46,58 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO")
     log_dir: str = Field(default="logs")
 
-    max_symbols_per_request: int = Field(default=3, description="Cap on comparison mode to protect rate limits")
-    market_data_period: str = Field(default="6mo", description="yfinance history window for indicators")
+    max_symbols_per_request: int = Field(
+        default=3, description="Cap on comparison mode to protect rate limits"
+    )
+    market_data_period: str = Field(
+        default="6mo", description="yfinance history window for indicators"
+    )
 
     # Retry/backoff tuning
     tool_max_retries: int = Field(default=3)
     tool_retry_min_seconds: float = Field(default=1.0)
     tool_retry_max_seconds: float = Field(default=8.0)
 
-    task_max_retries: int = Field(default=2, description="CrewAI task-level retries on schema validation failure")
-    
+    task_max_retries: int = Field(
+        default=2, description="CrewAI task-level retries on schema validation failure"
+    )
+
     # --- Phase 2: general screening ---
-    max_screening_results: int = Field(default=5, description="How many top-ranked candidates flow into the LLM crew")
-    screening_universe_path: str = Field(default="app/data/nifty50.json", description="Bundled candidate symbol list")
-    screening_scan_period: str = Field(default="1mo", description="Cheaper yfinance history window for the ranking-only scan")
-    screening_max_workers: int = Field(default=10, description="Threadpool size for concurrent candidate scanning")
+    max_screening_results: int = Field(
+        default=5, description="How many top-ranked candidates flow into the LLM crew"
+    )
+    screening_universe_path: str = Field(
+        default="app/data/nifty50.json", description="Bundled candidate symbol list"
+    )
+    screening_scan_period: str = Field(
+        default="1mo",
+        description="Cheaper yfinance history window for the ranking-only scan",
+    )
+    screening_max_workers: int = Field(
+        default=10, description="Threadpool size for concurrent candidate scanning"
+    )
 
 
 @lru_cache
 def get_settings() -> Settings:
+    """
+    Returns a cached Settings instance. Automatically checks if running inside a
+    Streamlit runtime environment and falls back to system/env variables otherwise.
+    """
+    # 1. Safely check if Streamlit is running without forcing a hard import error in FastAPI
+    try:
+        import streamlit as st
+
+        # Streamlit provides runtime context when active
+        if st.runtime.exists():
+            # Pass secrets natively using uppercase to lowercase matching
+            secrets_dict = st.secrets.to_dict()
+
+            # Normalizes lower_case streamlit keys if your .streamlit/secrets.toml uses them
+            # Pydantic accepts both exact matches and environment-style variables
+            return Settings(**secrets_dict)
+    except (ImportError, RuntimeError):
+        pass
+
+    # 2. Fallback to default Pydantic behavior (.env file or system environment variables)
     return Settings()

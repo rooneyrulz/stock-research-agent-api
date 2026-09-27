@@ -15,6 +15,8 @@ _Ask it a plain-English question. Get back a structured, validated, always-consi
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-Phase%202%20—%20Screening%20%2B%20Off--topic%20LLM-blue)]()
 
+![NSE Stock Research Agent UI](docs/screenshots/nse_stock_research_agent.png)
+
 </div>
 
 ---

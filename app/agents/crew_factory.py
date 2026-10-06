@@ -103,6 +103,7 @@ def build_stock_crew(symbol: str, time_horizon: str = "short_term") -> Crew:
         agent=market_data_agent,
         output_pydantic=MarketData,
         max_retries=settings.task_max_retries,
+        async_execution=True,
     )
 
     news_task = Task(
@@ -118,6 +119,7 @@ def build_stock_crew(symbol: str, time_horizon: str = "short_term") -> Crew:
         agent=news_analyst_agent,
         output_pydantic=NewsSentiment,
         max_retries=settings.task_max_retries,
+        async_execution=True,
     )
 
     recommendation_task = Task(
@@ -140,6 +142,6 @@ def build_stock_crew(symbol: str, time_horizon: str = "short_term") -> Crew:
     return Crew(
         agents=[market_data_agent, news_analyst_agent, recommendation_agent],
         tasks=[market_data_task, news_task, recommendation_task],
-        process=Process.sequential,
+        # process=Process.sequential,
         verbose=verbose,
     )

@@ -15,18 +15,11 @@ _Ask it a plain-English question. Get back a structured, validated, always-consi
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-Phase%202%20—%20Screening%20%2B%20Off--topic%20LLM-blue)]()
 
-![NSE Stock Research Agent UI](docs/screenshots/nse_stock_research_agent.png)
-
 </div>
 
 ---
 
-<!--
-  🎥 Demo goes here! Record a quick terminal walkthrough with
-  https://asciinema.org or https://terminalizer.com hitting /analyze with a
-  few different query types (single stock, screening, off-topic) and drop
-  the embed/GIF here. A live example is worth more than another paragraph.
--->
+[![Watch the demo video](docs/screenshots/nse_stock_research_agent.png)](docs/videos/nse-stock-research-agent-demo.mp4)
 
 ## 📖 Table of Contents
 

@@ -15,8 +15,11 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.logging_config import setup_logging
 from streamlit_app.components.results_table import render_results_table
 from streamlit_app.service import get_analysis
+
+setup_logging()
 
 st.set_page_config(page_title="NSE Stock Research Agent", page_icon="📈", layout="wide")
 
